@@ -52,7 +52,7 @@ body {
   border-bottom: 2px solid #e0e0e0;
   min-height: 60vh;
   overflow: hidden;
-  height: calc(100dvh - 32vh);
+  height: calc(100dvh - 100px);
 }
 .tile {
   position: absolute;
@@ -78,24 +78,7 @@ body {
   transform: scale(1.12);
   z-index: 10;
 }
-.answer-bar {
-  flex: 0 0 auto;
-  min-height: 30vh;
-  background: #fff;
-  border-top: 2px solid #e0e0e0;
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  padding: 1rem 0.5rem;
-  overflow-x: auto;
-  flex-wrap: wrap;
-}
 .answer-slot {
-  width: 48px;
-  height: 48px;
-  min-width: 40px;
-  min-height: 40px;
-  margin: 0 4px;
   border-radius: 10px;
   border: 2px dashed #d0d0d0;
   background: #fafafa;
@@ -104,7 +87,8 @@ body {
   justify-content: center;
   font-size: 2rem;
   transition: border-color 0.1s;
-  position: relative;
+  position: absolute;
+  z-index: 2;
 }
 .answer-slot.filled {
   border-style: solid;
@@ -131,21 +115,27 @@ body {
 .separator:hover, .separator:active {
   background: #f0f0f0;
 }
-}
+
 @media (max-width: 500px) {
   .tile, .answer-slot {
-    width: 40px;
-    height: 40px;
     min-width: 40px;
     min-height: 40px;
     font-size: 1.3rem;
   }
-  .answer-bar {
-    padding: 0.5rem 0.25rem;
-    flex-wrap: wrap;
-    height: auto;
-  }
   input {
     font-size: 16px !important;
   }
+}
+
+#backBtn {
+  display: block;
+  width: 90vw;
+  height: 56px;
+  font-size: 1.3rem;
+  border-radius: 16px;
+  padding: 1rem;
+  background: #e0e0e0;
+  border: none;
+  font-weight: bold;
+  margin: 1rem auto;
 }

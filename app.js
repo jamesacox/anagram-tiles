@@ -157,90 +157,74 @@ function renderWorkspace() {
   const page = pages.find(p => p.id === currentPageId);
   if (!page) return renderPageList();
   app.innerHTML = '';
-  // Workspace
-  const workspace = document.createElement('div');
-  workspace.className = 'workspace';
-  workspace.style.height = 'calc(100dvh - 32vh)'; // dynamic viewport height
-  workspace.style.overflow = 'hidden';
-  // Tiles
-  page.tiles.forEach(tile => {
-    if (!tile.inAnswer) {
-      const el = createTileElement(tile, page, workspace);
-      workspace.appendChild(el);
+  // Unified workspace/answer area
+  const area = document.createElement('div');
+  area.className = 'workspace';
+  area.style.position = 'relative';
+  area.style.height = 'calc(100dvh - 100px)';
+  area.style.overflow = 'hidden';
+  // Layout answer slots at bottom, at least 7 per row (iPhone SE: 375px)
+  const slotRows = [];
+  const totalSlots = page.answer.length;
+  const minSlotsPerRow = 7;
+  const areaW = window.innerWidth;
+  const slotMargin = 6;
+  let slotSize = Math.floor((areaW - (minSlotsPerRow + 1) * slotMargin) / minSlotsPerRow);
+  slotSize = Math.max(40, Math.min(60, slotSize));
+  let slotsPerRow = Math.floor((areaW + slotMargin) / (slotSize + slotMargin));
+  slotsPerRow = Math.max(minSlotsPerRow, slotsPerRow);
+  let slotPositions = [];
+  let yStart = window.innerHeight - 100 - Math.ceil(totalSlots / slotsPerRow) * (slotSize + slotMargin);
+  for (let i = 0; i < totalSlots; ++i) {
+    const row = Math.floor(i / slotsPerRow);
+    const col = i % slotsPerRow;
+    const x = slotMargin + col * (slotSize + slotMargin);
+    const y = yStart + row * (slotSize + slotMargin);
+    slotPositions.push({x, y});
+    // Render slot
+    const slot = document.createElement('div');
+    slot.className = 'answer-slot' + (page.answer[i] ? ' filled' : '');
+    slot.style.position = 'absolute';
+    slot.style.left = x + 'px';
+    slot.style.top = y + 'px';
+    slot.style.width = slotSize + 'px';
+    slot.style.height = slotSize + 'px';
+    slot.style.lineHeight = slotSize + 'px';
+    slot.style.zIndex = 2;
+    slot.dataset.idx = i;
+    // Render separator if needed
+    if (i > 0 && page.separators[i-1]) {
+      const sep = createSeparatorElement(page, i-1);
+      sep.style.position = 'absolute';
+      sep.style.left = (x - slotMargin/2 - 12) + 'px';
+      sep.style.top = y + 'px';
+      sep.style.zIndex = 3;
+      sep.style.height = slotSize + 'px';
+      sep.style.width = '24px';
+      area.appendChild(sep);
     }
-  });
-  app.appendChild(workspace);
-  // Answer bar
-  const answerBar = document.createElement('div');
-  answerBar.className = 'answer-bar';
-  // Improved answer bar layout: fit as many as possible per row, break at separators
-  const minSlot = 40;
-  const barW = window.innerWidth - 16;
-  let row = [];
-  let rows = [];
-  let curW = 0;
-  for (let i = 0; i < page.answer.length; ++i) {
-    // Estimate width: slot + (separator if present)
-    let sepW = 0;
-    if (i > 0 && page.separators[i-1]) sepW = 24;
-    if (curW + minSlot + sepW > barW && row.length > 0) {
-      rows.push(row);
-      row = [];
-      curW = 0;
-    }
-    row.push(i);
-    curW += minSlot + sepW;
-    // Prefer to break at separator
-    if (i > 0 && page.separators[i-1] && row.length > 0) {
-      rows.push(row);
-      row = [];
-      curW = 0;
+    // Place tile if present
+    if (page.answer[i]) {
+      const tile = page.tiles.find(t => t.id === page.answer[i]);
+      if (tile) {
+        tile.x = x;
+        tile.y = y;
+        tile.inAnswer = true;
+        tile.answerIdx = i;
+        area.appendChild(createTileElement(tile, page, area, slotSize));
+      }
+    } else {
+      // Empty slot, render as is
+      area.appendChild(slot);
     }
   }
-  if (row.length) rows.push(row);
-  rows.forEach((rowIdxs, r) => {
-    rowIdxs.forEach((i, j) => {
-      if (i > 0) {
-        answerBar.appendChild(createSeparatorElement(page, i - 1));
-      }
-      const slot = document.createElement('div');
-      slot.className = 'answer-slot' + (page.answer[i] ? ' filled' : '');
-      slot.dataset.idx = i;
-      slot.style.minWidth = minSlot + 'px';
-      slot.style.minHeight = minSlot + 'px';
-      if (page.answer[i]) {
-        const tile = page.tiles.find(t => t.id === page.answer[i]);
-        if (tile) slot.appendChild(createTileElement(tile, page, slot));
-      }
-      // Accept drag from workspace or other slots
-      slot.ondragover = slot.ontouchmove = e => {
-        e.preventDefault();
-        slot.classList.add('filled');
-      };
-      slot.ondragleave = slot.ontouchend = e => {
-        slot.classList.remove('filled');
-      };
-      slot.ondrop = e => {
-        e.preventDefault();
-        const tid = e.dataTransfer ? e.dataTransfer.getData('text/plain') : draggingTileId;
-        moveTileToAnswer(page, tid, i);
-      };
-      slot.ontouchstart = e => {
-        if (e.touches.length === 1 && slot.childNodes.length && !dragging) {
-          startTileTouchDrag(e, page, page.answer[i], true, i);
-        }
-      };
-      answerBar.appendChild(slot);
-    });
-    // Newline after each row except last
-    if (r < rows.length - 1) {
-      const br = document.createElement('div');
-      br.style.flexBasis = '100%';
-      br.style.height = '0';
-      answerBar.appendChild(br);
+  // Render free tiles
+  page.tiles.forEach(tile => {
+    if (!tile.inAnswer) {
+      area.appendChild(createTileElement(tile, page, area, slotSize));
     }
   });
-  app.appendChild(answerBar);
+  app.appendChild(area);
   // Back button
   let backBtn = document.getElementById('backBtn');
   if (!backBtn) {
@@ -249,7 +233,16 @@ function renderWorkspace() {
     app.appendChild(backBtn);
   }
   backBtn.textContent = '← Anagrams';
-  backBtn.style.margin = '1rem';
+  backBtn.style.margin = '1rem auto';
+  backBtn.style.display = 'block';
+  backBtn.style.width = '90vw';
+  backBtn.style.height = '56px';
+  backBtn.style.fontSize = '1.3rem';
+  backBtn.style.borderRadius = '16px';
+  backBtn.style.padding = '1rem';
+  backBtn.style.background = '#e0e0e0';
+  backBtn.style.border = 'none';
+  backBtn.style.fontWeight = 'bold';
   backBtn.onclick = renderPageList;
 }
 
@@ -259,6 +252,9 @@ function createTileElement(tile, page, parent) {
   el.textContent = tile.letter;
   el.style.left = tile.x + 'px';
   el.style.top = tile.y + 'px';
+  el.style.width = (arguments[3] || 48) + 'px';
+  el.style.height = (arguments[3] || 48) + 'px';
+  el.style.lineHeight = (arguments[3] || 48) + 'px';
   el.draggable = true;
   el.dataset.id = tile.id;
   // Mouse drag
@@ -274,7 +270,7 @@ function createTileElement(tile, page, parent) {
   // Touch drag
   el.ontouchstart = e => {
     if (e.touches.length === 1) {
-      startTileTouchDrag(e, page, tile.id, false);
+      startTileTouchDrag(e, page, tile.id, tile.inAnswer, tile.answerIdx);
     }
   };
   // Tap to edit
@@ -383,71 +379,78 @@ function startTileTouchDrag(e, page, tileId, fromAnswer, answerIdx) {
     ev.preventDefault();
     if (!dragging) return;
     const t = ev.touches[0];
-    // Constrain tile within workspace
-    const workspace = document.querySelector('.workspace');
-    const wsRect = workspace.getBoundingClientRect();
-    let nx = t.clientX - dragOffset.x;
-    let ny = t.clientY - dragOffset.y;
+    // Constrain tile within area
+    const area = document.querySelector('.workspace');
+    const areaRect = area.getBoundingClientRect();
+    let nx = t.clientX - areaRect.left - dragOffset.x;
+    let ny = t.clientY - areaRect.top - dragOffset.y;
     // Clamp
-    nx = Math.max(0, Math.min(nx, wsRect.width - 48));
-    ny = Math.max(0, Math.min(ny, wsRect.height - 48));
+    nx = Math.max(0, Math.min(nx, areaRect.width - dragTileElem.offsetWidth));
+    ny = Math.max(0, Math.min(ny, areaRect.height - dragTileElem.offsetHeight));
     tile.x = nx;
     tile.y = ny;
     dragTileElem.style.left = nx + 'px';
     dragTileElem.style.top = ny + 'px';
-    // Check overlap with answer bar slots
-    const answerBar = document.querySelector('.answer-bar');
-    if (answerBar) {
-      const slots = answerBar.querySelectorAll('.answer-slot');
-      slots.forEach(slot => {
-        const slotRect = slot.getBoundingClientRect();
-        if (
-          t.clientX > slotRect.left && t.clientX < slotRect.right &&
-          t.clientY > slotRect.top && t.clientY < slotRect.bottom
-        ) {
-          slot.classList.add('drag-over');
-        } else {
-          slot.classList.remove('drag-over');
-        }
-      });
-    }
   };
   const end = ev => {
     ev.preventDefault();
     const t = ev.changedTouches[0];
-    const answerBar = document.querySelector('.answer-bar');
-    let dropped = false;
-    if (answerBar) {
-      const slots = answerBar.querySelectorAll('.answer-slot');
-      slots.forEach((slot, idx) => {
-        const slotRect = slot.getBoundingClientRect();
-        if (
-          t.clientX > slotRect.left && t.clientX < slotRect.right &&
-          t.clientY > slotRect.top && t.clientY < slotRect.bottom
-        ) {
-          moveTileToAnswer(page, tileId, idx);
-          dropped = true;
-        }
-        slot.classList.remove('drag-over');
-      });
-    }
-    if (!dropped) {
-      // If tile was in answer bar, move it back to workspace
-      if (fromAnswer) {
-        // Place at drop position, but clamp to workspace
-        const workspace = document.querySelector('.workspace');
-        const wsRect = workspace.getBoundingClientRect();
-        let nx = t.clientX - wsRect.left - 24;
-        let ny = t.clientY - wsRect.top - 24;
-        nx = Math.max(0, Math.min(nx, wsRect.width - 48));
-        ny = Math.max(0, Math.min(ny, wsRect.height - 48));
-        moveTileToWorkspace(page, tileId, nx, ny);
-      } else {
-        // Save tile position
-        savePages();
-        renderWorkspace();
+    const area = document.querySelector('.workspace');
+    const areaRect = area.getBoundingClientRect();
+    // Find nearest empty answer slot within snap distance
+    const slotDivs = Array.from(area.querySelectorAll('.answer-slot'));
+    let snapIdx = -1;
+    let minDist = 9999;
+    let snapX = tile.x, snapY = tile.y;
+    slotDivs.forEach(div => {
+      const idx = parseInt(div.dataset.idx);
+      if (page.answer[idx] && page.answer[idx] !== tileId) return; // skip filled slots
+      const slotRect = div.getBoundingClientRect();
+      const cx = slotRect.left + slotRect.width/2 - areaRect.left;
+      const cy = slotRect.top + slotRect.height/2 - areaRect.top;
+      const dist = Math.hypot((tile.x + dragTileElem.offsetWidth/2) - cx, (tile.y + dragTileElem.offsetHeight/2) - cy);
+      if (dist < 30 && dist < minDist) {
+        minDist = dist;
+        snapIdx = idx;
+        snapX = cx - dragTileElem.offsetWidth/2;
+        snapY = cy - dragTileElem.offsetHeight/2;
       }
+    });
+    if (snapIdx !== -1) {
+      // Snap into slot, swap if needed
+      if (page.answer[snapIdx] && page.answer[snapIdx] !== tileId) {
+        // Swap: move occupying tile to previous position
+        const swapId = page.answer[snapIdx];
+        if (fromAnswer) {
+          page.answer[fromAnswer ? answerIdx : -1] = swapId;
+        } else {
+          // Move swapId to free
+          page.tiles.forEach(t => {
+            if (t.id === swapId) {
+              t.inAnswer = false;
+              t.answerIdx = null;
+              t.x = startX;
+              t.y = startY;
+            }
+          });
+        }
+      }
+      page.answer[snapIdx] = tileId;
+      tile.inAnswer = true;
+      tile.answerIdx = snapIdx;
+      tile.x = snapX;
+      tile.y = snapY;
+    } else {
+      // Not near any slot: free tile
+      if (fromAnswer) {
+        page.answer[answerIdx] = null;
+      }
+      tile.inAnswer = false;
+      tile.answerIdx = null;
+      // Already set x/y
     }
+    savePages();
+    renderWorkspace();
     dragging = false;
     draggingTileId = null;
     if (dragTileElem) dragTileElem.classList.remove('dragging');
