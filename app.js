@@ -281,111 +281,19 @@ function createTileElement(tile, page, parent) {
   el.ondragend = e => {
     el.classList.remove('dragging');
   };
-  // Touch drag and long-press edit
-  let longPressTimer = null;
-  let touchMoved = false;
+  // Touch drag (single finger starts drag immediately)
   el.ontouchstart = e => {
-    if (e.touches.length > 1) { e.preventDefault(); return; }
-    touchMoved = false;
-    longPressTimer = setTimeout(() => {
-      showTileEditModal(tile, page);
-      longPressTimer = null;
-    }, 500);
-  };
-  el.ontouchmove = e => {
-    if (longPressTimer) {
-      const t = e.touches[0];
-      // If moved more than 10px, cancel long press
-      const dx = t.clientX - (tile.x + (arguments[3]||48)/2);
-      const dy = t.clientY - (tile.y + (arguments[3]||48)/2);
-      if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
-        clearTimeout(longPressTimer);
-        longPressTimer = null;
-        touchMoved = true;
-      }
+    if (e.touches.length === 1) {
+      startTileTouchDrag(e, page, tile.id, tile.inAnswer, tile.answerIdx);
     }
   };
-  el.ontouchend = e => {
-    if (longPressTimer) {
-      clearTimeout(longPressTimer);
-      longPressTimer = null;
-      e.preventDefault();
-    }
-    if (!touchMoved && e.changedTouches.length === 1 && !dragging) {
-      // Could be a tap, but don't show edit modal here (handled by long-press)
-    }
-  };
-  // Tap to edit (desktop)
+  // Tap to edit (desktop only)
   el.onclick = e => {
-    if (!dragging && (e.pointerType === undefined || e.pointerType === 'mouse')) showTileEditModal(tile, page);
+    if (!dragging && (e.pointerType === undefined || e.pointerType === 'mouse')) showTileEdit(tile, page);
   };
   return el;
 
-// Modal for editing tile letter (single letter input)
-function showTileEditModal(tile, page) {
-  let modal = document.createElement('div');
-  modal.style.position = 'fixed';
-  modal.style.left = '0';
-  modal.style.top = '0';
-  modal.style.width = '100vw';
-  modal.style.height = '100dvh';
-  modal.style.background = 'rgba(0,0,0,0.3)';
-  modal.style.display = 'flex';
-  modal.style.alignItems = 'center';
-  modal.style.justifyContent = 'center';
-  modal.style.zIndex = '1000';
-  let box = document.createElement('div');
-  box.style.background = '#fff';
-  box.style.padding = '2rem';
-  box.style.borderRadius = '12px';
-  box.style.boxShadow = '0 2px 16px rgba(0,0,0,0.15)';
-  let label = document.createElement('label');
-  label.textContent = 'Edit letter:';
-  label.style.display = 'block';
-  label.style.marginBottom = '1rem';
-  let input = document.createElement('input');
-  input.type = 'text';
-  input.maxLength = 1;
-  input.value = tile.letter;
-  input.style.fontSize = '32px';
-  input.style.marginBottom = '1rem';
-  input.style.width = '3ch';
-  input.style.textAlign = 'center';
-  input.autocapitalize = 'characters';
-  input.autocomplete = 'off';
-  input.spellcheck = false;
-  box.appendChild(label);
-  box.appendChild(input);
-  let submit = document.createElement('button');
-  submit.textContent = 'OK';
-  submit.style.fontSize = '20px';
-  submit.style.padding = '0.5rem 1.5rem';
-  submit.style.marginRight = '1rem';
-  let cancel = document.createElement('button');
-  cancel.textContent = 'Cancel';
-  cancel.style.fontSize = '20px';
-  cancel.style.padding = '0.5rem 1.5rem';
-  box.appendChild(submit);
-  box.appendChild(cancel);
-  modal.appendChild(box);
-  document.body.appendChild(modal);
-  input.focus();
-  submit.onclick = () => {
-    const val = input.value.toUpperCase().replace(/[^A-Z]/g, '');
-    if (val.length === 1) {
-      tile.letter = val;
-      savePages();
-      document.body.removeChild(modal);
-      renderWorkspace();
-    }
-  };
-  cancel.onclick = () => {
-    document.body.removeChild(modal);
-  };
-  input.onkeydown = e => {
-    if (e.key === 'Enter') submit.onclick();
-  };
-}
+// ...existing code...
 }
 
 function showTileEdit(tile, page) {
