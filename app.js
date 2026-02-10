@@ -24,7 +24,7 @@ function renderPageList() {
 
   const newBtn = document.createElement('button');
   newBtn.className = 'new-btn';
-  newBtn.textContent = 'New Puzzle';
+  newBtn.textContent = 'New Anagram';
   newBtn.onclick = () => showNewPageInput(container);
   container.appendChild(newBtn);
 
@@ -173,47 +173,80 @@ function renderWorkspace() {
   // Answer bar
   const answerBar = document.createElement('div');
   answerBar.className = 'answer-bar';
-  // Responsive answer bar: scroll or wrap
-  let slotsPerRow = Math.floor(window.innerWidth / 48);
-  let rows = Math.ceil(page.answer.length / slotsPerRow);
-  if (window.innerWidth < 500 && page.answer.length > 12) {
-    answerBar.style.flexWrap = 'wrap';
-    answerBar.style.height = rows * 52 + 'px';
-  }
+  // Improved answer bar layout: fit as many as possible per row, break at separators
+  const minSlot = 40;
+  const barW = window.innerWidth - 16;
+  let row = [];
+  let rows = [];
+  let curW = 0;
   for (let i = 0; i < page.answer.length; ++i) {
-    if (i > 0) {
-      answerBar.appendChild(createSeparatorElement(page, i - 1));
+    // Estimate width: slot + (separator if present)
+    let sepW = 0;
+    if (i > 0 && page.separators[i-1]) sepW = 24;
+    if (curW + minSlot + sepW > barW && row.length > 0) {
+      rows.push(row);
+      row = [];
+      curW = 0;
     }
-    const slot = document.createElement('div');
-    slot.className = 'answer-slot' + (page.answer[i] ? ' filled' : '');
-    slot.dataset.idx = i;
-    slot.style.minWidth = '40px';
-    slot.style.minHeight = '40px';
-    if (page.answer[i]) {
-      const tile = page.tiles.find(t => t.id === page.answer[i]);
-      if (tile) slot.appendChild(createTileElement(tile, page, slot));
+    row.push(i);
+    curW += minSlot + sepW;
+    // Prefer to break at separator
+    if (i > 0 && page.separators[i-1] && row.length > 0) {
+      rows.push(row);
+      row = [];
+      curW = 0;
     }
-    slot.ondragover = slot.ontouchmove = e => {
-      e.preventDefault();
-      slot.classList.add('filled');
-    };
-    slot.ondragleave = slot.ontouchend = e => {
-      slot.classList.remove('filled');
-    };
-    slot.ondrop = e => {
-      e.preventDefault();
-      const tid = e.dataTransfer ? e.dataTransfer.getData('text/plain') : draggingTileId;
-      moveTileToAnswer(page, tid, i);
-    };
-    slot.ontouchstart = e => {
-      if (e.touches.length === 1 && slot.childNodes.length && !dragging) {
-        startTileTouchDrag(e, page, page.answer[i], true, i);
-      }
-    };
-    answerBar.appendChild(slot);
   }
+  if (row.length) rows.push(row);
+  rows.forEach((rowIdxs, r) => {
+    rowIdxs.forEach((i, j) => {
+      if (i > 0) {
+        answerBar.appendChild(createSeparatorElement(page, i - 1));
+      }
+      const slot = document.createElement('div');
+      slot.className = 'answer-slot' + (page.answer[i] ? ' filled' : '');
+      slot.dataset.idx = i;
+      slot.style.minWidth = minSlot + 'px';
+      slot.style.minHeight = minSlot + 'px';
+      if (page.answer[i]) {
+        const tile = page.tiles.find(t => t.id === page.answer[i]);
+        if (tile) slot.appendChild(createTileElement(tile, page, slot));
+      }
+      // Accept drag from workspace or other slots
+      slot.ondragover = slot.ontouchmove = e => {
+        e.preventDefault();
+        slot.classList.add('filled');
+      };
+      slot.ondragleave = slot.ontouchend = e => {
+        slot.classList.remove('filled');
+      };
+      slot.ondrop = e => {
+        e.preventDefault();
+        const tid = e.dataTransfer ? e.dataTransfer.getData('text/plain') : draggingTileId;
+        moveTileToAnswer(page, tid, i);
+      };
+      slot.ontouchstart = e => {
+        if (e.touches.length === 1 && slot.childNodes.length && !dragging) {
+          startTileTouchDrag(e, page, page.answer[i], true, i);
+        }
+      };
+      answerBar.appendChild(slot);
+    });
+    // Newline after each row except last
+    if (r < rows.length - 1) {
+      const br = document.createElement('div');
+      br.style.flexBasis = '100%';
+      br.style.height = '0';
+      answerBar.appendChild(br);
+    }
+  });
   app.appendChild(answerBar);
   // Back button
+  const backBtn = document.createElement('button');
+  backBtn.textContent = '← Anagrams';
+  backBtn.style.margin = '1rem';
+  backBtn.onclick = renderPageList;
+  app.appendChild(backBtn);
   const backBtn = document.createElement('button');
   backBtn.textContent = '← Pages';
   backBtn.style.margin = '1rem';
@@ -281,16 +314,48 @@ function moveTileToAnswer(page, tileId, idx) {
   // If slot filled, swap
   if (page.answer[idx]) {
     const swapId = page.answer[idx];
-    page.answer[prevIdx] = swapId;
+    if (prevIdx !== -1) {
+      page.answer[prevIdx] = swapId;
+      page.tiles.forEach(t => {
+        if (t.id === swapId) {
+          t.inAnswer = true;
+          t.answerIdx = prevIdx;
+        }
+      });
+    } else {
+      // Move swapId back to workspace
+      page.tiles.forEach(t => {
+        if (t.id === swapId) {
+          t.inAnswer = false;
+          t.answerIdx = null;
+        }
+      });
+    }
   }
   page.answer[idx] = tileId;
   page.tiles.forEach(t => {
     if (t.id === tileId) {
       t.inAnswer = true;
       t.answerIdx = idx;
-    } else if (t.answerIdx === idx) {
+    } else if (t.answerIdx === idx && t.id !== tileId) {
       t.inAnswer = false;
       t.answerIdx = null;
+    }
+  });
+  savePages();
+  renderWorkspace();
+}
+
+// Allow dragging tiles out of answer bar back to workspace
+function moveTileToWorkspace(page, tileId, x, y) {
+  const idx = page.answer.indexOf(tileId);
+  if (idx !== -1) page.answer[idx] = null;
+  page.tiles.forEach(t => {
+    if (t.id === tileId) {
+      t.inAnswer = false;
+      t.answerIdx = null;
+      t.x = x;
+      t.y = y;
     }
   });
   savePages();
@@ -310,6 +375,8 @@ function startTileTouchDrag(e, page, tileId, fromAnswer, answerIdx) {
   dragTileElem.classList.add('dragging');
   const tile = page.tiles.find(t => t.id === tileId);
   const touch = e.touches[0];
+  let startX = tile.x;
+  let startY = tile.y;
   dragOffset.x = touch.clientX - tile.x;
   dragOffset.y = touch.clientY - tile.y;
   // Prevent scrolling during drag
@@ -348,7 +415,6 @@ function startTileTouchDrag(e, page, tileId, fromAnswer, answerIdx) {
   };
   const end = ev => {
     ev.preventDefault();
-    // Snap to answer bar if over slot
     const t = ev.changedTouches[0];
     const answerBar = document.querySelector('.answer-bar');
     let dropped = false;
@@ -367,9 +433,21 @@ function startTileTouchDrag(e, page, tileId, fromAnswer, answerIdx) {
       });
     }
     if (!dropped) {
-      // Save tile position
-      savePages();
-      renderWorkspace();
+      // If tile was in answer bar, move it back to workspace
+      if (fromAnswer) {
+        // Place at drop position, but clamp to workspace
+        const workspace = document.querySelector('.workspace');
+        const wsRect = workspace.getBoundingClientRect();
+        let nx = t.clientX - wsRect.left - 24;
+        let ny = t.clientY - wsRect.top - 24;
+        nx = Math.max(0, Math.min(nx, wsRect.width - 48));
+        ny = Math.max(0, Math.min(ny, wsRect.height - 48));
+        moveTileToWorkspace(page, tileId, nx, ny);
+      } else {
+        // Save tile position
+        savePages();
+        renderWorkspace();
+      }
     }
     dragging = false;
     draggingTileId = null;
