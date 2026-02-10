@@ -242,16 +242,15 @@ function renderWorkspace() {
   });
   app.appendChild(answerBar);
   // Back button
-  const backBtn = document.createElement('button');
+  let backBtn = document.getElementById('backBtn');
+  if (!backBtn) {
+    backBtn = document.createElement('button');
+    backBtn.id = 'backBtn';
+    app.appendChild(backBtn);
+  }
   backBtn.textContent = '← Anagrams';
   backBtn.style.margin = '1rem';
   backBtn.onclick = renderPageList;
-  app.appendChild(backBtn);
-  const backBtn = document.createElement('button');
-  backBtn.textContent = '← Pages';
-  backBtn.style.margin = '1rem';
-  backBtn.onclick = renderPageList;
-  app.appendChild(backBtn);
 }
 
 function createTileElement(tile, page, parent) {
