@@ -164,7 +164,6 @@ function renderWorkspace() {
   area.style.height = 'calc(100dvh - 100px)';
   area.style.overflow = 'hidden';
   // Layout answer slots at bottom, at least 7 per row (iPhone SE: 375px)
-  const slotRows = [];
   const totalSlots = page.answer.length;
   const minSlotsPerRow = 7;
   const areaW = window.innerWidth;
@@ -174,13 +173,37 @@ function renderWorkspace() {
   let slotsPerRow = Math.floor((areaW + slotMargin) / (slotSize + slotMargin));
   slotsPerRow = Math.max(minSlotsPerRow, slotsPerRow);
   let slotPositions = [];
-  let yStart = window.innerHeight - 100 - Math.ceil(totalSlots / slotsPerRow) * (slotSize + slotMargin);
+  let yStart = area.offsetHeight ? area.offsetHeight - Math.ceil(totalSlots / slotsPerRow) * (slotSize + slotMargin) : window.innerHeight - 100 - Math.ceil(totalSlots / slotsPerRow) * (slotSize + slotMargin);
+  // Always render answer slots at the bottom
   for (let i = 0; i < totalSlots; ++i) {
     const row = Math.floor(i / slotsPerRow);
     const col = i % slotsPerRow;
     const x = slotMargin + col * (slotSize + slotMargin);
-    const y = yStart + row * (slotSize + slotMargin);
+    const y = area.offsetHeight ? area.offsetHeight - (Math.ceil(totalSlots / slotsPerRow) - row) * (slotSize + slotMargin) : yStart + row * (slotSize + slotMargin);
     slotPositions.push({x, y});
+    // Render separator tap target (always present, at least 20px wide)
+    if (i > 0) {
+      const sepTap = document.createElement('div');
+      sepTap.className = 'separator-tap';
+      sepTap.style.position = 'absolute';
+      sepTap.style.left = (x - slotMargin/2 - 10) + 'px';
+      sepTap.style.top = y + 'px';
+      sepTap.style.width = '24px';
+      sepTap.style.height = slotSize + 'px';
+      sepTap.style.zIndex = 4;
+      sepTap.style.display = 'flex';
+      sepTap.style.alignItems = 'center';
+      sepTap.style.justifyContent = 'center';
+      sepTap.style.cursor = 'pointer';
+      sepTap.onclick = () => {
+        page.separators[i-1] = (page.separators[i-1] + 1) % 3;
+        savePages();
+        renderWorkspace();
+      };
+      const val = page.separators[i-1];
+      sepTap.textContent = val === 1 ? '/' : val === 2 ? '-' : '';
+      area.appendChild(sepTap);
+    }
     // Render slot
     const slot = document.createElement('div');
     slot.className = 'answer-slot' + (page.answer[i] ? ' filled' : '');
@@ -192,17 +215,6 @@ function renderWorkspace() {
     slot.style.lineHeight = slotSize + 'px';
     slot.style.zIndex = 2;
     slot.dataset.idx = i;
-    // Render separator if needed
-    if (i > 0 && page.separators[i-1]) {
-      const sep = createSeparatorElement(page, i-1);
-      sep.style.position = 'absolute';
-      sep.style.left = (x - slotMargin/2 - 12) + 'px';
-      sep.style.top = y + 'px';
-      sep.style.zIndex = 3;
-      sep.style.height = slotSize + 'px';
-      sep.style.width = '24px';
-      area.appendChild(sep);
-    }
     // Place tile if present
     if (page.answer[i]) {
       const tile = page.tiles.find(t => t.id === page.answer[i]);
@@ -211,17 +223,18 @@ function renderWorkspace() {
         tile.y = y;
         tile.inAnswer = true;
         tile.answerIdx = i;
-        area.appendChild(createTileElement(tile, page, area, slotSize));
+        // Tiles in slots get lower z-index
+        area.appendChild(createTileElement(tile, page, area, slotSize, 3));
       }
     } else {
       // Empty slot, render as is
       area.appendChild(slot);
     }
   }
-  // Render free tiles
+  // Render free tiles last (higher z-index)
   page.tiles.forEach(tile => {
     if (!tile.inAnswer) {
-      area.appendChild(createTileElement(tile, page, area, slotSize));
+      area.appendChild(createTileElement(tile, page, area, slotSize, 10));
     }
   });
   app.appendChild(area);
@@ -255,6 +268,7 @@ function createTileElement(tile, page, parent) {
   el.style.width = (arguments[3] || 48) + 'px';
   el.style.height = (arguments[3] || 48) + 'px';
   el.style.lineHeight = (arguments[3] || 48) + 'px';
+  el.style.zIndex = arguments[4] !== undefined ? arguments[4] : 1;
   el.draggable = true;
   el.dataset.id = tile.id;
   // Mouse drag
@@ -267,17 +281,111 @@ function createTileElement(tile, page, parent) {
   el.ondragend = e => {
     el.classList.remove('dragging');
   };
-  // Touch drag
+  // Touch drag and long-press edit
+  let longPressTimer = null;
+  let touchMoved = false;
   el.ontouchstart = e => {
-    if (e.touches.length === 1) {
-      startTileTouchDrag(e, page, tile.id, tile.inAnswer, tile.answerIdx);
+    if (e.touches.length > 1) { e.preventDefault(); return; }
+    touchMoved = false;
+    longPressTimer = setTimeout(() => {
+      showTileEditModal(tile, page);
+      longPressTimer = null;
+    }, 500);
+  };
+  el.ontouchmove = e => {
+    if (longPressTimer) {
+      const t = e.touches[0];
+      // If moved more than 10px, cancel long press
+      const dx = t.clientX - (tile.x + (arguments[3]||48)/2);
+      const dy = t.clientY - (tile.y + (arguments[3]||48)/2);
+      if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+        touchMoved = true;
+      }
     }
   };
-  // Tap to edit
+  el.ontouchend = e => {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+      e.preventDefault();
+    }
+    if (!touchMoved && e.changedTouches.length === 1 && !dragging) {
+      // Could be a tap, but don't show edit modal here (handled by long-press)
+    }
+  };
+  // Tap to edit (desktop)
   el.onclick = e => {
-    if (!dragging) showTileEdit(tile, page);
+    if (!dragging && (e.pointerType === undefined || e.pointerType === 'mouse')) showTileEditModal(tile, page);
   };
   return el;
+
+// Modal for editing tile letter (single letter input)
+function showTileEditModal(tile, page) {
+  let modal = document.createElement('div');
+  modal.style.position = 'fixed';
+  modal.style.left = '0';
+  modal.style.top = '0';
+  modal.style.width = '100vw';
+  modal.style.height = '100dvh';
+  modal.style.background = 'rgba(0,0,0,0.3)';
+  modal.style.display = 'flex';
+  modal.style.alignItems = 'center';
+  modal.style.justifyContent = 'center';
+  modal.style.zIndex = '1000';
+  let box = document.createElement('div');
+  box.style.background = '#fff';
+  box.style.padding = '2rem';
+  box.style.borderRadius = '12px';
+  box.style.boxShadow = '0 2px 16px rgba(0,0,0,0.15)';
+  let label = document.createElement('label');
+  label.textContent = 'Edit letter:';
+  label.style.display = 'block';
+  label.style.marginBottom = '1rem';
+  let input = document.createElement('input');
+  input.type = 'text';
+  input.maxLength = 1;
+  input.value = tile.letter;
+  input.style.fontSize = '32px';
+  input.style.marginBottom = '1rem';
+  input.style.width = '3ch';
+  input.style.textAlign = 'center';
+  input.autocapitalize = 'characters';
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  box.appendChild(label);
+  box.appendChild(input);
+  let submit = document.createElement('button');
+  submit.textContent = 'OK';
+  submit.style.fontSize = '20px';
+  submit.style.padding = '0.5rem 1.5rem';
+  submit.style.marginRight = '1rem';
+  let cancel = document.createElement('button');
+  cancel.textContent = 'Cancel';
+  cancel.style.fontSize = '20px';
+  cancel.style.padding = '0.5rem 1.5rem';
+  box.appendChild(submit);
+  box.appendChild(cancel);
+  modal.appendChild(box);
+  document.body.appendChild(modal);
+  input.focus();
+  submit.onclick = () => {
+    const val = input.value.toUpperCase().replace(/[^A-Z]/g, '');
+    if (val.length === 1) {
+      tile.letter = val;
+      savePages();
+      document.body.removeChild(modal);
+      renderWorkspace();
+    }
+  };
+  cancel.onclick = () => {
+    document.body.removeChild(modal);
+  };
+  input.onkeydown = e => {
+    if (e.key === 'Enter') submit.onclick();
+  };
+}
 }
 
 function showTileEdit(tile, page) {
@@ -379,14 +487,22 @@ function startTileTouchDrag(e, page, tileId, fromAnswer, answerIdx) {
     ev.preventDefault();
     if (!dragging) return;
     const t = ev.touches[0];
-    // Constrain tile within area
+    // Constrain tile within area and above answer slots
     const area = document.querySelector('.workspace');
     const areaRect = area.getBoundingClientRect();
     let nx = t.clientX - areaRect.left - dragOffset.x;
     let ny = t.clientY - areaRect.top - dragOffset.y;
+    // Prevent tile from being dragged below answer slots
+    // Find top of answer slot area
+    const slotDivs = Array.from(area.querySelectorAll('.answer-slot'));
+    let minSlotY = areaRect.height;
+    slotDivs.forEach(div => {
+      const rect = div.getBoundingClientRect();
+      minSlotY = Math.min(minSlotY, rect.top - areaRect.top);
+    });
     // Clamp
     nx = Math.max(0, Math.min(nx, areaRect.width - dragTileElem.offsetWidth));
-    ny = Math.max(0, Math.min(ny, areaRect.height - dragTileElem.offsetHeight));
+    ny = Math.max(0, Math.min(ny, minSlotY - dragTileElem.offsetHeight - 4));
     tile.x = nx;
     tile.y = ny;
     dragTileElem.style.left = nx + 'px';
@@ -415,6 +531,12 @@ function startTileTouchDrag(e, page, tileId, fromAnswer, answerIdx) {
         snapX = cx - dragTileElem.offsetWidth/2;
         snapY = cy - dragTileElem.offsetHeight/2;
       }
+    });
+    // Prevent tile from being left behind answer slots
+    let minSlotY = areaRect.height;
+    slotDivs.forEach(div => {
+      const rect = div.getBoundingClientRect();
+      minSlotY = Math.min(minSlotY, rect.top - areaRect.top);
     });
     if (snapIdx !== -1) {
       // Snap into slot, swap if needed
@@ -447,7 +569,10 @@ function startTileTouchDrag(e, page, tileId, fromAnswer, answerIdx) {
       }
       tile.inAnswer = false;
       tile.answerIdx = null;
-      // Already set x/y
+      // If tile is below answer slots, push it up
+      if (tile.y + dragTileElem.offsetHeight > minSlotY - 4) {
+        tile.y = Math.max(0, minSlotY - dragTileElem.offsetHeight - 4);
+      }
     }
     savePages();
     renderWorkspace();
@@ -468,3 +593,14 @@ renderPageList();
 window.addEventListener('resize', () => {
   if (currentPageId) renderWorkspace();
 });
+// Prevent pinch/double-tap zoom
+window.addEventListener('touchstart', function(e) {
+  if (e.touches.length > 1) e.preventDefault();
+}, {passive: false});
+let lastTouch = 0;
+window.addEventListener('touchend', function(e) {
+  const now = Date.now();
+  if (now - lastTouch < 350) e.preventDefault();
+  lastTouch = now;
+}, {passive: false});
+window.addEventListener('dblclick', function(e) { e.preventDefault(); }, {passive: false});
