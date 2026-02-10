@@ -44,19 +44,65 @@ function renderPageList() {
 }
 
 function showNewPageInput(container) {
-  const input = document.createElement('input');
+  // Modal input for iOS zoom prevention
+  let modal = document.createElement('div');
+  modal.style.position = 'fixed';
+  modal.style.left = '0';
+  modal.style.top = '0';
+  modal.style.width = '100vw';
+  modal.style.height = '100dvh';
+  modal.style.background = 'rgba(0,0,0,0.3)';
+  modal.style.display = 'flex';
+  modal.style.alignItems = 'center';
+  modal.style.justifyContent = 'center';
+  modal.style.zIndex = '1000';
+  let box = document.createElement('div');
+  box.style.background = '#fff';
+  box.style.padding = '2rem';
+  box.style.borderRadius = '12px';
+  box.style.boxShadow = '0 2px 16px rgba(0,0,0,0.15)';
+  let label = document.createElement('label');
+  label.textContent = 'Enter letters (A-Z, spaces allowed):';
+  label.style.display = 'block';
+  label.style.marginBottom = '1rem';
+  let input = document.createElement('input');
   input.type = 'text';
   input.maxLength = 30;
-  input.placeholder = 'Enter letters (A-Z, spaces allowed)';
-  input.style.marginBottom = '0.5rem';
-  container.insertBefore(input, container.children[2]);
+  input.placeholder = 'ANAGRAMLETTERS';
+  input.style.fontSize = '16px';
+  input.style.marginBottom = '1rem';
+  input.style.width = '100%';
+  input.style.padding = '0.5rem';
+  input.autocapitalize = 'characters';
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  box.appendChild(label);
+  box.appendChild(input);
+  let submit = document.createElement('button');
+  submit.textContent = 'Create';
+  submit.style.fontSize = '16px';
+  submit.style.padding = '0.5rem 1.5rem';
+  submit.style.marginRight = '1rem';
+  let cancel = document.createElement('button');
+  cancel.textContent = 'Cancel';
+  cancel.style.fontSize = '16px';
+  cancel.style.padding = '0.5rem 1.5rem';
+  box.appendChild(submit);
+  box.appendChild(cancel);
+  modal.appendChild(box);
+  document.body.appendChild(modal);
   input.focus();
+  submit.onclick = () => {
+    const val = input.value.toUpperCase().replace(/[^A-Z ]/g, '');
+    if (val.replace(/ /g, '').length === 0) return;
+    document.body.removeChild(modal);
+    createPage(val);
+  };
+  cancel.onclick = () => {
+    document.body.removeChild(modal);
+  };
   input.onkeydown = e => {
-    if (e.key === 'Enter') {
-      const val = input.value.toUpperCase().replace(/[^A-Z ]/g, '');
-      if (val.replace(/ /g, '').length === 0) return;
-      createPage(val);
-    }
+    if (e.key === 'Enter') submit.onclick();
   };
 }
 
@@ -114,7 +160,8 @@ function renderWorkspace() {
   // Workspace
   const workspace = document.createElement('div');
   workspace.className = 'workspace';
-  workspace.style.height = '70vh';
+  workspace.style.height = 'calc(100dvh - 32vh)'; // dynamic viewport height
+  workspace.style.overflow = 'hidden';
   // Tiles
   page.tiles.forEach(tile => {
     if (!tile.inAnswer) {
@@ -126,6 +173,13 @@ function renderWorkspace() {
   // Answer bar
   const answerBar = document.createElement('div');
   answerBar.className = 'answer-bar';
+  // Responsive answer bar: scroll or wrap
+  let slotsPerRow = Math.floor(window.innerWidth / 48);
+  let rows = Math.ceil(page.answer.length / slotsPerRow);
+  if (window.innerWidth < 500 && page.answer.length > 12) {
+    answerBar.style.flexWrap = 'wrap';
+    answerBar.style.height = rows * 52 + 'px';
+  }
   for (let i = 0; i < page.answer.length; ++i) {
     if (i > 0) {
       answerBar.appendChild(createSeparatorElement(page, i - 1));
@@ -133,6 +187,8 @@ function renderWorkspace() {
     const slot = document.createElement('div');
     slot.className = 'answer-slot' + (page.answer[i] ? ' filled' : '');
     slot.dataset.idx = i;
+    slot.style.minWidth = '40px';
+    slot.style.minHeight = '40px';
     if (page.answer[i]) {
       const tile = page.tiles.find(t => t.id === page.answer[i]);
       if (tile) slot.appendChild(createTileElement(tile, page, slot));
@@ -150,7 +206,7 @@ function renderWorkspace() {
       moveTileToAnswer(page, tid, i);
     };
     slot.ontouchstart = e => {
-      if (e.touches.length === 1 && slot.childNodes.length) {
+      if (e.touches.length === 1 && slot.childNodes.length && !dragging) {
         startTileTouchDrag(e, page, page.answer[i], true, i);
       }
     };
@@ -245,28 +301,84 @@ function moveTileToAnswer(page, tileId, idx) {
 let dragging = false;
 let draggingTileId = null;
 let dragOffset = {x:0, y:0};
+let dragTileElem = null;
 function startTileTouchDrag(e, page, tileId, fromAnswer, answerIdx) {
+  if (dragging) return; // Only one drag at a time
   dragging = true;
   draggingTileId = tileId;
+  dragTileElem = e.target;
+  dragTileElem.classList.add('dragging');
   const tile = page.tiles.find(t => t.id === tileId);
   const touch = e.touches[0];
   dragOffset.x = touch.clientX - tile.x;
   dragOffset.y = touch.clientY - tile.y;
+  // Prevent scrolling during drag
   const move = ev => {
+    ev.preventDefault();
     if (!dragging) return;
     const t = ev.touches[0];
-    tile.x = t.clientX - dragOffset.x;
-    tile.y = t.clientY - dragOffset.y;
-    savePages();
-    renderWorkspace();
+    // Constrain tile within workspace
+    const workspace = document.querySelector('.workspace');
+    const wsRect = workspace.getBoundingClientRect();
+    let nx = t.clientX - dragOffset.x;
+    let ny = t.clientY - dragOffset.y;
+    // Clamp
+    nx = Math.max(0, Math.min(nx, wsRect.width - 48));
+    ny = Math.max(0, Math.min(ny, wsRect.height - 48));
+    tile.x = nx;
+    tile.y = ny;
+    dragTileElem.style.left = nx + 'px';
+    dragTileElem.style.top = ny + 'px';
+    // Check overlap with answer bar slots
+    const answerBar = document.querySelector('.answer-bar');
+    if (answerBar) {
+      const slots = answerBar.querySelectorAll('.answer-slot');
+      slots.forEach(slot => {
+        const slotRect = slot.getBoundingClientRect();
+        if (
+          t.clientX > slotRect.left && t.clientX < slotRect.right &&
+          t.clientY > slotRect.top && t.clientY < slotRect.bottom
+        ) {
+          slot.classList.add('drag-over');
+        } else {
+          slot.classList.remove('drag-over');
+        }
+      });
+    }
   };
   const end = ev => {
+    ev.preventDefault();
+    // Snap to answer bar if over slot
+    const t = ev.changedTouches[0];
+    const answerBar = document.querySelector('.answer-bar');
+    let dropped = false;
+    if (answerBar) {
+      const slots = answerBar.querySelectorAll('.answer-slot');
+      slots.forEach((slot, idx) => {
+        const slotRect = slot.getBoundingClientRect();
+        if (
+          t.clientX > slotRect.left && t.clientX < slotRect.right &&
+          t.clientY > slotRect.top && t.clientY < slotRect.bottom
+        ) {
+          moveTileToAnswer(page, tileId, idx);
+          dropped = true;
+        }
+        slot.classList.remove('drag-over');
+      });
+    }
+    if (!dropped) {
+      // Save tile position
+      savePages();
+      renderWorkspace();
+    }
     dragging = false;
     draggingTileId = null;
-    window.removeEventListener('touchmove', move);
+    if (dragTileElem) dragTileElem.classList.remove('dragging');
+    dragTileElem = null;
+    window.removeEventListener('touchmove', move, {passive:false});
     window.removeEventListener('touchend', end);
   };
-  window.addEventListener('touchmove', move);
+  window.addEventListener('touchmove', move, {passive:false});
   window.addEventListener('touchend', end);
 }
 
