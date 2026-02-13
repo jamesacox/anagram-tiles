@@ -161,28 +161,18 @@ async function createNewPage() {
   if (!letters) return;
 
   const tileLetters = letters.replace(/ /g, '').split('');
-  const canvasW = $canvas.clientWidth;
-  const canvasH = $canvas.clientHeight;
 
-  // Place tiles in a grid with jitter, in the upper part of the canvas
-  const workspaceH = canvasH * 0.6;
-  const cols = Math.ceil(Math.sqrt(tileLetters.length));
-  const rows = Math.ceil(tileLetters.length / cols);
-  const cellW = (canvasW - 20) / cols;
-  const cellH = workspaceH / rows;
-
-  const tiles = tileLetters.map((ch, i) => {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    return {
-      id: 't' + i + '_' + Date.now(),
-      letter: ch,
-      x: Math.round(10 + col * cellW + Math.random() * Math.max(0, cellW - TILE_SIZE - 4)),
-      y: Math.round(40 + row * cellH + Math.random() * Math.max(0, cellH - TILE_SIZE - 4)),
-      inAnswer: false,
-      answerIdx: null
-    };
-  });
+  // Tile positions are set to 0,0 here — they get scattered properly
+  // on first render in openPage → renderWorkspace, once the canvas is visible.
+  const tiles = tileLetters.map((ch, i) => ({
+    id: 't' + i + '_' + Date.now(),
+    letter: ch,
+    x: 0,
+    y: 0,
+    inAnswer: false,
+    answerIdx: null,
+    needsPlacement: true
+  }));
 
   const page = {
     id: 'p' + Date.now(),
@@ -209,9 +199,44 @@ function openPage(id) {
   renderWorkspace();
 }
 
+// ── Scatter tiles evenly across the workspace ───────────
+// Called on first render when tiles have needsPlacement flag.
+
+function scatterTiles(page, answerZoneTop) {
+  const freeTiles = page.tiles.filter(t => t.needsPlacement && !t.inAnswer);
+  if (freeTiles.length === 0) return;
+
+  const canvasW = $canvas.clientWidth;
+  const availH = answerZoneTop - 50; // leave room for back button
+  const margin = 10;
+  const usableW = canvasW - margin * 2 - TILE_SIZE;
+  const usableH = Math.max(TILE_SIZE, availH - margin - TILE_SIZE);
+
+  const cols = Math.ceil(Math.sqrt(freeTiles.length * (usableW / usableH)));
+  const rows = Math.ceil(freeTiles.length / cols);
+  const cellW = usableW / cols;
+  const cellH = usableH / rows;
+
+  freeTiles.forEach((tile, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    // Centre of cell + random jitter
+    const jitterX = Math.max(0, cellW - TILE_SIZE - 4);
+    const jitterY = Math.max(0, cellH - TILE_SIZE - 4);
+    tile.x = Math.round(margin + col * cellW + Math.random() * jitterX);
+    tile.y = Math.round(50 + row * cellH + Math.random() * jitterY);
+    delete tile.needsPlacement;
+  });
+
+  save();
+}
+
 // ── Answer Bar Layout Engine ────────────────────────────
 // Computes slot positions with smart multi-row wrapping.
-// Tries to break at separators when a row overflows.
+// 1. Splits slots into "word segments" at separator positions.
+// 2. Packs segments greedily into rows, breaking at separators when needed.
+// 3. If any single segment is wider than the screen, sub-wraps it by slot count.
+// 4. Each row is horizontally centred.
 
 function computeSlotLayout(page) {
   const canvasW = $canvas.clientWidth;
@@ -219,17 +244,14 @@ function computeSlotLayout(page) {
   const totalSlots = page.answer.length;
   if (totalSlots === 0) return { positions: [], answerZoneTop: canvasH };
 
-  const step = TILE_SIZE + TILE_GAP; // px per slot
-  const sepStep = SEP_WIDTH;         // px per visible separator
+  const step = TILE_SIZE + TILE_GAP;
   const maxRowW = canvasW - ANSWER_PADDING * 2;
+  const maxSlotsPerRow = Math.max(1, Math.floor((maxRowW + TILE_GAP) / step));
 
-  // Build "segments" — groups of consecutive slots split by separators.
-  // Each segment is a run of slots between separator positions (or start/end).
+  // Build word segments — groups of slots between separators.
   const segments = [];
   let segStart = 0;
   for (let i = 0; i < totalSlots; i++) {
-    // A separator sits between slot i-1 and slot i.
-    // If separator[i-1] is non-zero, that's a break point.
     if (i > 0 && page.separators[i - 1] !== SEP_NONE) {
       segments.push({ start: segStart, end: i - 1, sepAfter: page.separators[i - 1] });
       segStart = i;
@@ -237,90 +259,82 @@ function computeSlotLayout(page) {
   }
   segments.push({ start: segStart, end: totalSlots - 1, sepAfter: SEP_NONE });
 
-  // Measure width of a segment (in px)
-  function segWidth(seg) {
-    const slotCount = seg.end - seg.start + 1;
-    return slotCount * step - TILE_GAP; // no trailing gap
-  }
+  // Width of a run of N slots (no trailing gap)
+  function slotsWidth(n) { return n * step - TILE_GAP; }
 
-  // Pack segments into rows using a greedy algorithm.
-  // A separator between segments takes sepStep px.
-  const rows = []; // each row = [seg, seg, ...]
-  let currentRow = [];
-  let currentRowW = 0;
+  // Build rows. Each row is an array of "chunks" where each chunk is
+  // { start, count } — a contiguous run of slots to render on this row.
+  // We also track which separators appear between chunks on the same row.
+  const rows = []; // each row: { chunks: [{start, count}], seps: [sepValue...] }
+
+  let curRow = { chunks: [], seps: [], width: 0 };
 
   for (let s = 0; s < segments.length; s++) {
     const seg = segments[s];
-    const sw = segWidth(seg);
-    const sepW = currentRow.length > 0 ? sepStep : 0;
+    const segSlotCount = seg.end - seg.start + 1;
 
-    if (currentRow.length > 0 && currentRowW + sepW + sw > maxRowW) {
-      // Overflow — push current row, start new one
-      rows.push(currentRow);
-      currentRow = [seg];
-      currentRowW = sw;
+    // If this segment fits on the current row (with separator gap if not first), add it.
+    // If not, flush and start a new row.
+    // If the segment itself is wider than maxRowW, sub-wrap it.
+
+    const sepGap = curRow.chunks.length > 0 ? SEP_WIDTH : 0;
+    const sw = slotsWidth(segSlotCount);
+
+    if (segSlotCount <= maxSlotsPerRow && (curRow.width + sepGap + sw <= maxRowW)) {
+      // Fits (or row is empty and segment fits in maxSlotsPerRow)
+      if (curRow.chunks.length > 0) {
+        // Record the separator between previous segment and this one
+        curRow.seps.push(segments[s - 1] ? segments[s - 1].sepAfter : SEP_NONE);
+        curRow.width += SEP_WIDTH;
+      }
+      curRow.chunks.push({ start: seg.start, count: segSlotCount });
+      curRow.width += sw;
     } else {
-      currentRow.push(seg);
-      currentRowW += sepW + sw;
-    }
-  }
-  if (currentRow.length > 0) rows.push(currentRow);
+      // Doesn't fit — flush current row if it has content
+      if (curRow.chunks.length > 0) {
+        rows.push(curRow);
+      }
 
-  // If there are no separators and everything is one segment,
-  // that segment may still be wider than maxRowW.
-  // In that case, do plain wrapping by slot count.
-  if (segments.length === 1 && segWidth(segments[0]) > maxRowW) {
-    return computePlainWrapLayout(page, totalSlots, maxRowW, step, canvasW, canvasH);
-  }
-
-  // Now compute actual x,y for each slot.
-  const positions = new Array(totalSlots);
-  const rowCount = rows.length;
-  const answerH = rowCount * step + ANSWER_PADDING * 2;
-  const answerTop = canvasH - answerH;
-
-  for (let r = 0; r < rowCount; r++) {
-    const rowSegs = rows[r];
-    // Compute total row width to centre it
-    let rowW = 0;
-    for (let s = 0; s < rowSegs.length; s++) {
-      if (s > 0) rowW += sepStep;
-      rowW += segWidth(rowSegs[s]);
-    }
-    let x = Math.round((canvasW - rowW) / 2);
-    const y = answerTop + ANSWER_PADDING + r * step;
-
-    for (let s = 0; s < rowSegs.length; s++) {
-      const seg = rowSegs[s];
-      if (s > 0) x += sepStep; // space for separator
-      for (let i = seg.start; i <= seg.end; i++) {
-        positions[i] = { x, y };
-        x += step;
+      // Sub-wrap this segment into rows of maxSlotsPerRow
+      let remaining = segSlotCount;
+      let idx = seg.start;
+      while (remaining > 0) {
+        const take = Math.min(maxSlotsPerRow, remaining);
+        curRow = { chunks: [{ start: idx, count: take }], seps: [], width: slotsWidth(take) };
+        if (remaining - take > 0) {
+          // More sub-rows coming — flush this one
+          rows.push(curRow);
+          curRow = { chunks: [], seps: [], width: 0 };
+        }
+        // else keep curRow open so next segment can potentially join
+        idx += take;
+        remaining -= take;
       }
     }
   }
+  if (curRow.chunks.length > 0) rows.push(curRow);
 
-  return { positions, answerZoneTop: answerTop };
-}
-
-function computePlainWrapLayout(page, totalSlots, maxRowW, step, canvasW, canvasH) {
-  const slotsPerRow = Math.max(1, Math.floor((maxRowW + TILE_GAP) / step));
-  const rowCount = Math.ceil(totalSlots / slotsPerRow);
-  const answerH = rowCount * step + ANSWER_PADDING * 2;
-  const answerTop = canvasH - answerH;
+  // Now compute x,y positions for each slot.
   const positions = new Array(totalSlots);
+  const rowCount = rows.length;
+  const answerH = rowCount * step + ANSWER_PADDING * 2;
+  const answerTop = Math.max(MIN_WORKSPACE_H, canvasH - answerH);
 
-  for (let i = 0; i < totalSlots; i++) {
-    const row = Math.floor(i / slotsPerRow);
-    const col = i % slotsPerRow;
-    // Centre each row
-    const slotsInRow = Math.min(slotsPerRow, totalSlots - row * slotsPerRow);
-    const rowW = slotsInRow * step - TILE_GAP;
-    const startX = Math.round((canvasW - rowW) / 2);
-    positions[i] = {
-      x: startX + col * step,
-      y: answerTop + ANSWER_PADDING + row * step
-    };
+  for (let r = 0; r < rowCount; r++) {
+    const row = rows[r];
+    // Compute total row width for centering
+    let rowW = row.width;
+    let x = Math.round((canvasW - rowW) / 2);
+    const y = answerTop + ANSWER_PADDING + r * step;
+
+    for (let c = 0; c < row.chunks.length; c++) {
+      if (c > 0) x += SEP_WIDTH; // gap for separator between chunks
+      const chunk = row.chunks[c];
+      for (let j = 0; j < chunk.count; j++) {
+        positions[chunk.start + j] = { x, y };
+        x += step;
+      }
+    }
   }
 
   return { positions, answerZoneTop: answerTop };
@@ -338,6 +352,9 @@ function renderWorkspace() {
   const layout = computeSlotLayout(page);
   slotPositions = layout.positions;
   const answerZoneTop = layout.answerZoneTop;
+
+  // Scatter any tiles that need initial placement (new page)
+  scatterTiles(page, answerZoneTop);
 
   // Answer zone background
   const zone = document.createElement('div');
@@ -364,48 +381,39 @@ function renderWorkspace() {
     $canvas.appendChild(slot);
   });
 
-  // Render separator tap targets (between adjacent slots on the same row)
+  // Render separator tap targets between adjacent slots.
+  // The visible gap may be narrow (TILE_GAP = 6px), so the tap target
+  // extends over adjacent tiles for a comfortable touch target (~30px).
+  // The sep-tap has a higher z-index than slots but lower than tiles,
+  // so it doesn't block tile dragging.
   for (let i = 0; i < page.separators.length; i++) {
     const posA = slotPositions[i];
     const posB = slotPositions[i + 1];
     if (!posA || !posB) continue;
-    // Only show separator between slots on the same row
-    if (posA.y !== posB.y) continue;
 
+    const sameRow = posA.y === posB.y;
     const tap = document.createElement('div');
     tap.className = 'sep-tap';
-    tap.style.left = (posA.x + TILE_SIZE) + 'px';
-    tap.style.top = posA.y + 'px';
-    tap.style.width = (posB.x - posA.x - TILE_SIZE) + 'px';
     tap.style.height = TILE_SIZE + 'px';
     tap.style.fontSize = (TILE_SIZE * 0.55) + 'px';
     tap.textContent = SEP_CHARS[page.separators[i]];
-    tap.addEventListener('click', () => {
-      page.separators[i] = (page.separators[i] + 1) % 3;
-      save();
-      renderWorkspace();
-    });
-    $canvas.appendChild(tap);
-  }
 
-  // For separators between rows (line break happened at a separator),
-  // show the separator character at the end of the first row.
-  for (let i = 0; i < page.separators.length; i++) {
-    if (page.separators[i] === SEP_NONE) continue;
-    const posA = slotPositions[i];
-    const posB = slotPositions[i + 1];
-    if (!posA || !posB) continue;
-    if (posA.y === posB.y) continue; // same row — already rendered above
+    if (sameRow) {
+      // Centre the tap target in the gap, but make it at least 30px wide
+      const gapLeft = posA.x + TILE_SIZE;
+      const gapW = posB.x - gapLeft;
+      const tapW = Math.max(30, gapW);
+      const tapX = gapLeft + (gapW - tapW) / 2;
+      tap.style.left = tapX + 'px';
+      tap.style.top = posA.y + 'px';
+      tap.style.width = tapW + 'px';
+    } else {
+      // Cross-row separator — show at end of first row
+      tap.style.left = (posA.x + TILE_SIZE + 2) + 'px';
+      tap.style.top = posA.y + 'px';
+      tap.style.width = SEP_WIDTH + 'px';
+    }
 
-    const tap = document.createElement('div');
-    tap.className = 'sep-tap';
-    // Place it just after the last slot on this row
-    tap.style.left = (posA.x + TILE_SIZE + 2) + 'px';
-    tap.style.top = posA.y + 'px';
-    tap.style.width = SEP_WIDTH + 'px';
-    tap.style.height = TILE_SIZE + 'px';
-    tap.style.fontSize = (TILE_SIZE * 0.55) + 'px';
-    tap.textContent = SEP_CHARS[page.separators[i]];
     tap.addEventListener('click', () => {
       page.separators[i] = (page.separators[i] + 1) % 3;
       save();
