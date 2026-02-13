@@ -1,164 +1,322 @@
-.separator-tap {
-  background: transparent;
-  min-width: 20px;
-  width: 24px;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 2rem;
-  color: #888;
-  z-index: 4;
-  cursor: pointer;
-  border-radius: 8px;
-  transition: background 0.15s;
-}
-.separator-tap:active, .separator-tap:focus {
-  background: #e0e0e0;
-}
-body {
+/* ── Reset & Base ────────────────────────────────────── */
+
+*, *::before, *::after {
+  box-sizing: border-box;
   margin: 0;
-  font-family: system-ui, sans-serif;
+  padding: 0;
+}
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
   background: #f9f9f9;
   color: #222;
   height: 100dvh;
   overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
 }
-#app {
-  min-height: 100dvh;
+
+/* ── Views ───────────────────────────────────────────── */
+
+.view {
+  height: 100dvh;
   display: flex;
   flex-direction: column;
-  height: 100dvh;
 }
-.page-list {
-  padding: 1rem;
+
+.hidden {
+  display: none !important;
 }
-.page-list h1 {
+
+/* ── Page List ───────────────────────────────────────── */
+
+.list-header {
+  padding: 1rem 1.25rem 0.5rem;
+  flex-shrink: 0;
+}
+
+.list-header h1 {
   font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.list-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 1.25rem 1.25rem;
+}
+
+.btn {
+  display: block;
+  width: 100%;
+  padding: 0.75rem;
+  border: none;
+  border-radius: 10px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-appearance: none;
+}
+
+.btn-new {
+  background: #4a90d9;
+  color: #fff;
   margin-bottom: 1rem;
 }
-.page-list ul {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 1rem 0;
+
+.btn-new:active {
+  background: #3a7bc8;
 }
-.page-list li {
+
+.btn-secondary {
+  background: #e8e8e8;
+  color: #444;
+}
+
+.btn-secondary:active {
+  background: #d8d8d8;
+}
+
+#pages-ul {
+  list-style: none;
+}
+
+.page-item {
   background: #fff;
-  border-radius: 8px;
+  border-radius: 10px;
   margin-bottom: 0.5rem;
   padding: 0.75rem 1rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
-}
-.page-list .new-btn {
-  display: block;
-  width: 100%;
-  padding: 0.75rem;
-  background: #e0e0e0;
-  border: none;
-  border-radius: 8px;
-  font-size: 1rem;
-  margin-bottom: 1rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  cursor: pointer;
 }
 
-.workspace {
-  flex: 1 1 auto;
-  position: relative;
-  background: #f3f3f3;
-  border-bottom: 2px solid #e0e0e0;
-  min-height: 60vh;
+.page-item:active {
+  background: #f4f4f4;
+}
+
+.page-item-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.page-item-letters {
+  font-weight: 600;
+  font-size: 1rem;
+  white-space: nowrap;
   overflow: hidden;
-  height: calc(100dvh - 100px);
+  text-overflow: ellipsis;
 }
-.tile {
-  position: absolute;
-  width: 48px;
-  height: 48px;
-  background: #fffbe9;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.10);
-  border: 2px solid #e0e0e0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 2rem;
-  font-weight: bold;
-  color: #222;
-  user-select: none;
-  touch-action: none;
-  transition: box-shadow 0.1s, transform 0.1s;
-  /* z-index set inline for free/answer tiles */
-}
-.tile.dragging {
-  box-shadow: 0 6px 24px rgba(0,0,0,0.18);
-  transform: scale(1.12);
-  z-index: 10;
-}
-.answer-slot {
-  border-radius: 10px;
-  border: 2px dashed #d0d0d0;
-  background: #fafafa;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 2rem;
-  transition: border-color 0.1s;
-  position: absolute;
-  z-index: 2;
-}
-.answer-slot.filled {
-  border-style: solid;
-  border-color: #b0b0b0;
-}
-.separator {
-  width: 24px;
-  min-width: 24px;
-  text-align: center;
-  font-size: 1.5rem;
+
+.page-item-date {
+  font-size: 0.75rem;
   color: #888;
-  user-select: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 40px;
-  margin: 0 2px;
+  margin-top: 0.15rem;
+}
+
+.page-item-delete {
   background: none;
   border: none;
+  font-size: 1.25rem;
+  padding: 0.25rem 0.5rem;
+  cursor: pointer;
+  color: #c44;
+  flex-shrink: 0;
   border-radius: 6px;
-  transition: background 0.1s;
-}
-.separator:hover, .separator:active {
-  background: #f0f0f0;
 }
 
-@media (max-width: 500px) {
-  .tile, .answer-slot {
-    min-width: 40px;
-    min-height: 40px;
-    font-size: 1.3rem;
-  }
-  .separator-tap {
-    font-size: 1.3rem;
-    min-width: 20px;
-    width: 20px;
-  }
-  input {
-    font-size: 16px !important;
-  }
+.page-item-delete:active {
+  background: #fee;
 }
 
-#backBtn {
+/* ── Workspace Canvas ────────────────────────────────── */
+
+#workspace-view {
+  position: relative;
+}
+
+#canvas {
+  position: relative;
+  width: 100%;
+  height: 100dvh;
+  overflow: hidden;
+  background: #f3f3f3;
+}
+
+/* ── Back Button (inside canvas) ─────────────────────── */
+
+.back-btn {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #444;
+  cursor: pointer;
+  z-index: 100;
+  touch-action: manipulation;
+}
+
+.back-btn:active {
+  background: #e8e8e8;
+}
+
+/* ── Answer Zone Background ──────────────────────────── */
+
+.answer-zone {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #eaeaea;
+  border-top: 2px solid #d8d8d8;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* ── Answer Slots ────────────────────────────────────── */
+
+.answer-slot {
+  position: absolute;
+  border-radius: 8px;
+  border: 2px dashed #ccc;
+  background: rgba(255, 255, 255, 0.5);
+  z-index: 1;
+}
+
+.answer-slot.filled {
+  border-color: transparent;
+  background: transparent;
+}
+
+/* ── Separator Taps ──────────────────────────────────── */
+
+.sep-tap {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+  cursor: pointer;
+  touch-action: manipulation;
+  font-weight: 700;
+  color: #888;
+  border-radius: 4px;
+  user-select: none;
+}
+
+.sep-tap:active {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+/* ── Tiles ───────────────────────────────────────────── */
+
+.tile {
+  position: absolute;
+  border-radius: 10px;
+  background: #fffbe9;
+  border: 2px solid #d8d0a8;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #333;
+  user-select: none;
+  touch-action: none;
+  cursor: grab;
+  z-index: 10;
+  transition: box-shadow 0.1s, transform 0.1s;
+}
+
+.tile.in-answer {
+  z-index: 2;
+}
+
+.tile.dragging {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  transform: scale(1.1);
+  z-index: 1000;
+  cursor: grabbing;
+  transition: none;
+}
+
+/* ── Modal ───────────────────────────────────────────── */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.modal-box {
+  background: #fff;
+  padding: 1.5rem;
+  border-radius: 14px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+  width: min(90vw, 340px);
+}
+
+.modal-box label {
   display: block;
-  width: 90vw;
-  height: 56px;
-  font-size: 1.3rem;
-  border-radius: 16px;
-  padding: 1rem;
-  background: #e0e0e0;
-  border: none;
-  font-weight: bold;
-  margin: 1rem auto;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+  font-size: 0.95rem;
+}
+
+.modal-box input {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border: 2px solid #ddd;
+  border-radius: 8px;
+  font-size: 16px; /* prevents iOS zoom */
+  margin-bottom: 1rem;
+  outline: none;
+}
+
+.modal-box input:focus {
+  border-color: #4a90d9;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.modal-actions .btn {
+  flex: 1;
+  padding: 0.6rem;
+}
+
+.modal-actions .btn:first-child {
+  background: #4a90d9;
+  color: #fff;
+}
+
+.modal-actions .btn:first-child:active {
+  background: #3a7bc8;
+}
+
+/* ── Responsive (small screens) ──────────────────────── */
+
+@media (max-width: 400px) {
+  .tile {
+    font-size: 1.25rem;
+  }
+
+  .sep-tap {
+    font-size: 1.1rem;
+  }
 }
