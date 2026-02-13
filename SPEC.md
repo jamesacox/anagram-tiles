@@ -75,9 +75,12 @@ A mobile-first Progressive Web App for rearranging letter tiles to solve anagram
 - Separators are visual only — they don't add extra slots
 - The answer bar should reflow to show separators clearly between the relevant slots
 
-### Scrolling
-- If the answer bar is too wide for the screen (likely with 20-30 letters), it should scroll horizontally
-- Consider showing the answer bar across multiple rows instead if that's more usable on a phone screen
+### Multi-Row Wrapping
+- The answer bar wraps across multiple rows when slots don't fit the screen width
+- Minimum slot size of ~40px is maintained; the answer zone grows vertically as needed
+- When word separators (slash/hyphen) are present, they act as **preferred line-break points** — the layout tries to break at separators first to keep word fragments together on one row
+- Separators are only used as break points when needed for fit — e.g. a short answer like "2/2/2" stays on one line if it fits
+- The workspace zone shrinks to accommodate extra answer rows
 
 ---
 

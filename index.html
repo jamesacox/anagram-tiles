@@ -3,21 +3,49 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="theme-color" content="#f9f9f9">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="apple-touch-icon" href="icon-192.png">
   <title>Anagram Tiles</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div id="app">
-    <!-- Page list and workspace will be rendered here by JS -->
+
+  <!-- Page list view -->
+  <div id="page-list" class="view">
+    <header class="list-header">
+      <h1>Anagram Tiles</h1>
+    </header>
+    <div class="list-body">
+      <button id="new-btn" class="btn btn-new">+ New Anagram</button>
+      <ul id="pages-ul"></ul>
+    </div>
   </div>
+
+  <!-- Workspace view -->
+  <div id="workspace-view" class="view hidden">
+    <div id="canvas"></div>
+  </div>
+
+  <!-- Modal for new page / tile edit -->
+  <div id="modal-overlay" class="modal-overlay hidden">
+    <div class="modal-box">
+      <label id="modal-label" for="modal-input"></label>
+      <input id="modal-input" type="text" maxlength="30" autocomplete="off" spellcheck="false" autocapitalize="characters">
+      <div class="modal-actions">
+        <button id="modal-ok" class="btn">OK</button>
+        <button id="modal-cancel" class="btn btn-secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <script src="app.js"></script>
   <script>
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', function() {
+      window.addEventListener('load', () => {
         navigator.serviceWorker.register('service-worker.js');
       });
     }
